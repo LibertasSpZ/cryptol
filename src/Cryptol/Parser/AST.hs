@@ -55,6 +55,7 @@ module Cryptol.Parser.AST
   , PrimType(..)
   , ParameterType(..)
   , ParameterFun(..)
+  , NestedModule(..)
 
     -- * Interactive
   , ReplInput(..)
@@ -126,6 +127,11 @@ data Module name = Module
   } deriving (Show, Generic, NFData)
 
 
+-- XXX: Just a place holder
+data NestedModule name = NestedModule name Range
+  deriving (Show,Generic,NFData)
+
+
 modRange :: Module name -> Range
 modRange m = rCombs $ catMaybes
     [ getLoc (mName m)
@@ -144,6 +150,7 @@ data TopDecl name =
   | DParameterConstraint [Located (Prop name)]
                                         -- ^ @parameter type constraint (fin T)@
   | DParameterFun  (ParameterFun name)  -- ^ @parameter someVal : [256]@
+  | DModule (TopLevel (NestedModule name))
                     deriving (Show, Generic, NFData)
 
 data Decl name = DSignature [Located name] (Schema name)
@@ -472,6 +479,7 @@ instance HasLoc (TopDecl name) where
     DParameterType d -> getLoc d
     DParameterFun d  -> getLoc d
     DParameterConstraint d -> getLoc d
+    DModule d -> getLoc d
 
 instance HasLoc (PrimType name) where
   getLoc pt = Just (rComb (srcRange (primTName pt)) (srcRange (primTKind pt)))
@@ -491,6 +499,9 @@ instance HasLoc (Module name) where
                      , getLoc (mImports m)
                      , getLoc (mDecls m)
                      ]
+
+instance HasLoc (NestedModule name) where
+  getLoc (NestedModule _ r) = Just r
 
 instance HasLoc (Newtype name) where
   getLoc n
@@ -524,6 +535,11 @@ instance (Show name, PPName name) => PP (Module name) where
             $$ vcat (map ppL (mImports m))
             $$ vcat (map pp (mDecls m))
 
+instance (Show name, PPName name) => PP (NestedModule name) where
+  ppPrec _ (NestedModule m r) = "module" <+> pp m <+> "where"
+                                $$ nest 2 ("/* XXX " <+> pp r <+> " */")
+
+
 instance (Show name, PPName name) => PP (Program name) where
   ppPrec _ (Program ds) = vcat (map pp ds)
 
@@ -542,6 +558,7 @@ instance (Show name, PPName name) => PP (TopDecl name) where
                        [x] -> x
                        []  -> "()"
                        xs  -> parens (hsep (punctuate comma xs))
+      DModule d -> pp d
 
 instance (Show name, PPName name) => PP (PrimType name) where
   ppPrec _ pt =
@@ -901,6 +918,9 @@ instance NoPos (Module name) where
                    , mDecls     = noPos (mDecls m)
                    }
 
+instance NoPos (NestedModule name) where
+  noPos (NestedModule x r) = NestedModule x (noPos r)
+
 instance NoPos (TopDecl name) where
   noPos decl =
     case decl of
@@ -911,6 +931,8 @@ instance NoPos (TopDecl name) where
       DParameterFun d  -> DParameterFun (noPos d)
       DParameterType d -> DParameterType (noPos d)
       DParameterConstraint d -> DParameterConstraint (noPos d)
+      DModule d -> DModule (noPos d)
+
 
 instance NoPos (PrimType name) where
   noPos x = x

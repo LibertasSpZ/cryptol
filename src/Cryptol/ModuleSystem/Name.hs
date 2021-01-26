@@ -30,6 +30,7 @@ module Cryptol.ModuleSystem.Name (
   , cmpNameLexical
   , cmpNameDisplay
   , ppLocName
+  , Namespace(..)
 
     -- ** Creation
   , mkDeclared
@@ -76,6 +77,7 @@ data NameInfo = Declared !ModName !NameSource
                 -- ^ This name is a parameter (function or type)
                 deriving (Eq, Show, Generic, NFData)
 
+
 data Name = Name { nUnique :: {-# UNPACK #-} !Int
                    -- ^ INVARIANT: this field uniquely identifies a name for one
                    -- session with the Cryptol library. Names are unique to
@@ -99,6 +101,9 @@ data Name = Name { nUnique :: {-# UNPACK #-} !Int
 
 data NameSource = SystemName | UserName
                     deriving (Generic, NFData, Show, Eq)
+
+data Namespace = NSValue | NSType | NSModule
+  deriving (Generic,Show,NFData,Eq,Ord)
 
 instance Eq Name where
   a == b = compare a b == EQ

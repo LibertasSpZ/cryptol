@@ -1180,7 +1180,9 @@ browseCmd input = do
                    _ -> True
       inSet s x = x `Set.member` s
 
-  let (visibleTypes,visibleDecls) = M.visibleNames names
+  let visNames      = M.visibleNames names
+      visibleTypes  = Map.findWithDefault Set.empty M.NSType  visNames
+      visibleDecls  = Map.findWithDefault Set.empty M.NSValue visNames
 
       restricted = if null mnames then const True else hasAnyModName mnames
 

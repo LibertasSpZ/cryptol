@@ -18,7 +18,6 @@
 module Cryptol.ModuleSystem.Renamer (
     NamingEnv(), shadowing
   , BindsNames(..), InModule(..), namingEnv'
-  , checkNamingEnv
   , shadowNames
   , Rename(..), runRenamer, RenameM()
   , RenamerError(..)
@@ -359,31 +358,30 @@ shadowNamesNS names m =
 -- | Generate warnings when the left environment shadows things defined in
 -- the right.  Additionally, generate errors when two names overlap in the
 -- left environment.
-checkEnv :: NameDisp -> EnvCheck -> NamingEnv -> NamingEnv -> RW -> (NamingEnv,RW)
-checkEnv disp check l r rw
-  | check == CheckNone = (l',rw)
-  | otherwise          = (l',rw'')
+checkEnv ::
+  NameDisp -> EnvCheck -> NamingEnv -> NamingEnv -> RW -> (NamingEnv,RW)
+checkEnv disp check (NamingEnv lenv) r rw0
+  | check == CheckNone = (newEnv,rw0)
+  | otherwise          = (newEnv,rwFin)
 
   where
+  newEnv         = NamingEnv newMap
+  (rwFin,newMap) = Map.mapAccumWithKey doNS rw0 lenv
+  doNS rw ns     = Map.mapAccumWithKey (step ns) rw
 
-  l' = l { neExprs = es, neTypes = ts }
-
-  (rw',es)  = Map.mapAccumWithKey (step neExprs) rw  (neExprs l)
-  (rw'',ts) = Map.mapAccumWithKey (step neTypes) rw' (neTypes l)
-
-  step prj acc k ns = (acc', [head ns])
+  step ns acc k xs = (acc', [head xs])
     where
     acc' = acc
       { rwWarnings =
           if check == CheckAll
-             then case Map.lookup k (prj r) of
+             then case Map.lookup k (namespaceMap ns r) of
                     Nothing -> rwWarnings acc
-                    Just os -> addRenamerWarning 
-                                    (SymbolShadowed (head ns) os disp)
+                    Just os -> addRenamerWarning
+                                    (SymbolShadowed (head xs) os disp)
                                     (rwWarnings acc)
 
              else rwWarnings acc
-      , rwErrors   = rwErrors acc Seq.>< containsOverlap disp ns
+      , rwErrors   = rwErrors acc Seq.>< containsOverlap disp xs
       }
 
 -- | Check the RHS of a single name rewrite for conflicting sources.
@@ -392,16 +390,6 @@ containsOverlap _    [_] = Seq.empty
 containsOverlap _    []  = panic "Renamer" ["Invalid naming environment"]
 containsOverlap disp ns  = Seq.singleton (OverlappingSyms ns disp)
 
--- | Throw errors for any names that overlap in a rewrite environment.
-checkNamingEnv :: NamingEnv -> ([RenamerError],[RenamerWarning])
-checkNamingEnv env = (F.toList out, [])
-  where
-  out    = Map.foldr check outTys (neExprs env)
-  outTys = Map.foldr check mempty (neTypes env)
-
-  disp   = toNameDisp env
-
-  check ns acc = containsOverlap disp ns Seq.>< acc
 
 recordUse :: Name -> RenameM ()
 recordUse x = RenameM $ sets_ $ \rw ->
@@ -417,7 +405,7 @@ warnUnused m0 env ro rw =
   where
   warn x   = UnusedName x (roDisp ro)
   keep k n = n == 1 && isLocal k
-  oldNames = fst (visibleNames env)
+  oldNames = Map.findWithDefault Set.empty NSType (visibleNames env)
   isLocal nm = case nameInfo nm of
                  Declared m sys -> sys == UserName &&
                                    m == m0 && nm `Set.notMember` oldNames
@@ -435,7 +423,7 @@ renameModule m =
      decls' <-  shadowNames' CheckOverlap env (traverse rename (mDecls m))
      let m1 = m { mDecls = decls' }
          exports = modExports m1
-     mapM_ recordUse (eTypes exports)
+     mapM_ recordUse (exported NSType exports)
      return (env,m1)
 
 instance Rename TopDecl where
@@ -509,7 +497,7 @@ instance Rename Newtype where
 renameVar :: PName -> RenameM Name
 renameVar qn = do
   ro <- RenameM ask
-  case Map.lookup qn (neExprs (roNames ro)) of
+  case Map.lookup qn (namespaceMap NSValue (roNames ro)) of
     Just [n]  -> return n
     Just []   -> panic "Renamer" ["Invalid expression renaming environment"]
     Just syms ->
@@ -522,7 +510,7 @@ renameVar qn = do
     Nothing ->
       do n <- located qn
 
-         case Map.lookup qn (neTypes (roNames ro)) of
+         case Map.lookup qn (namespaceMap NSType (roNames ro)) of
            -- types existed with the name of the value expected
            Just _ -> record (ExpectedValue n)
 
@@ -537,7 +525,7 @@ renameVar qn = do
 typeExists :: PName -> RenameM (Maybe Name)
 typeExists pn =
   do ro <- RenameM ask
-     case Map.lookup pn (neTypes (roNames ro)) of
+     case Map.lookup pn (namespaceMap NSType (roNames ro)) of
        Just [n]  -> recordUse n >> return (Just n)
        Just []   -> panic "Renamer" ["Invalid type renaming environment"]
        Just syms -> do n <- located pn
@@ -558,7 +546,7 @@ renameType pn =
          do ro <- RenameM ask
             let n = Located { srcRange = roLoc ro, thing = pn }
 
-            case Map.lookup pn (neExprs (roNames ro)) of
+            case Map.lookup pn (namespaceMap NSValue (roNames ro)) of
 
               -- values exist with the same name, so throw a different error
               Just _ -> record (ExpectedType n)

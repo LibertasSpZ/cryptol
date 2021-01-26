@@ -50,6 +50,9 @@ instance RemovePatterns (Module PName) where
 instance RemovePatterns [Decl PName] where
   removePatterns ds = runNoPatM (noPatDs ds)
 
+instance RemovePatterns (NestedModule PName) where
+  removePatterns (NestedModule x r) = (NestedModule x r,[])
+
 simpleBind :: Located PName -> Expr PName -> Bind PName
 simpleBind x e = Bind { bName = x, bParams = []
                       , bDef = at e (Located emptyRange (DExpr e))
@@ -373,6 +376,11 @@ annotTopDs tds =
         -- XXX: we may want to add pragmas to newtypes?
         TDNewtype {} -> (d :) <$> annotTopDs ds
         Include {}   -> (d :) <$> annotTopDs ds
+
+        DModule m ->
+          case removePatterns (tlValue m) of
+            (m1,errs) -> do lift (mapM_ recordError errs)
+                            (DModule m { tlValue = m1 } :) <$> annotTopDs ds
 
     [] -> return []
 

@@ -17,18 +17,11 @@
 {-# LANGUAGE RecordWildCards #-}
 module Cryptol.ModuleSystem.NamingEnv where
 
-import Cryptol.ModuleSystem.Interface
-import Cryptol.ModuleSystem.Name
-import Cryptol.Parser.AST
-import Cryptol.Parser.Name(isGeneratedName)
-import Cryptol.Parser.Position
-import qualified Cryptol.TypeCheck.AST as T
-import Cryptol.Utils.PP
-import Cryptol.Utils.Panic (panic)
-
 import Data.List (nub)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe,mapMaybe)
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Semigroup
 import MonadLib (runId,Id)
@@ -39,46 +32,61 @@ import Control.DeepSeq
 import Prelude ()
 import Prelude.Compat
 
+import Cryptol.Utils.PP
+import Cryptol.Utils.Panic (panic)
+import Cryptol.Parser.AST
+import Cryptol.Parser.Name(isGeneratedName)
+import Cryptol.Parser.Position
+import qualified Cryptol.TypeCheck.AST as T
+import Cryptol.ModuleSystem.Interface
+import Cryptol.ModuleSystem.Name
+
 
 -- Naming Environment ----------------------------------------------------------
 
 -- | The 'NamingEnv' is used by the renamer to determine what
 -- identifiers refer to.
-data NamingEnv = NamingEnv { neExprs :: !(Map.Map PName [Name])
-                             -- ^ Expr renaming environment
-                           , neTypes :: !(Map.Map PName [Name])
-                             -- ^ Type renaming environment
-                           } deriving (Show, Generic, NFData)
+newtype NamingEnv = NamingEnv (Map Namespace (Map PName [Name]))
+  deriving (Show,Generic,NFData)
+
+-- | Get the names in a given namespace
+namespaceMap :: Namespace -> NamingEnv -> Map PName [Name]
+namespaceMap ns (NamingEnv env) = Map.findWithDefault Map.empty ns env
+
+-- | Resolve a name in the given namespace.
+lookupNS :: Namespace -> PName -> NamingEnv -> [Name]
+lookupNS ns x = Map.findWithDefault [] x . namespaceMap ns
 
 -- | Return a list of value-level names to which this parsed name may refer.
 lookupValNames :: PName -> NamingEnv -> [Name]
-lookupValNames qn ro = Map.findWithDefault [] qn (neExprs ro)
+lookupValNames = lookupNS NSValue
 
 -- | Return a list of type-level names to which this parsed name may refer.
 lookupTypeNames :: PName -> NamingEnv -> [Name]
-lookupTypeNames qn ro = Map.findWithDefault [] qn (neTypes ro)
+lookupTypeNames = lookupNS NSType
+
+-- | Singleton renaming environment for the given namespace.
+singletonNS :: Namespace -> PName -> Name -> NamingEnv
+singletonNS ns pn n = NamingEnv (Map.singleton ns (Map.singleton pn [n]))
+
+-- | Singleton expression renaming environment.
+singletonE :: PName -> Name -> NamingEnv
+singletonE = singletonNS NSValue
+
+-- | Singleton type renaming environment.
+singletonT :: PName -> Name -> NamingEnv
+singletonT = singletonNS NSType
+
 
 
 
 instance Semigroup NamingEnv where
-  l <> r   =
-    NamingEnv { neExprs  = Map.unionWith merge (neExprs  l) (neExprs  r)
-              , neTypes  = Map.unionWith merge (neTypes  l) (neTypes  r) }
+  NamingEnv l <> NamingEnv r =
+      NamingEnv (Map.unionWith (Map.unionWith merge) l r)
 
 instance Monoid NamingEnv where
-  mempty        =
-    NamingEnv { neExprs  = Map.empty
-              , neTypes  = Map.empty }
-
-  mappend l r   = l <> r
-
-  mconcat envs  =
-    NamingEnv { neExprs  = Map.unionsWith merge (map neExprs  envs)
-              , neTypes  = Map.unionsWith merge (map neTypes  envs) }
-
+  mempty = NamingEnv Map.empty
   {-# INLINE mempty #-}
-  {-# INLINE mappend #-}
-  {-# INLINE mconcat #-}
 
 
 -- | Merge two name maps, collapsing cases where the entries are the same, and
@@ -90,59 +98,58 @@ merge xs ys | xs == ys  = xs
 -- | Generate a mapping from 'PrimIdent' to 'Name' for a
 -- given naming environment.
 toPrimMap :: NamingEnv -> PrimMap
-toPrimMap NamingEnv { .. } = PrimMap { .. }
+toPrimMap env =
+  PrimMap
+    { primDecls = fromNS NSValue
+    , primTypes = fromNS NSType
+    }
   where
+  fromNS ns = Map.fromList
+                [ entry x | xs <- Map.elems (namespaceMap ns env), x <- xs ]
+
   entry n = case asPrim n of
               Just p  -> (p,n)
               Nothing -> panic "toPrimMap" [ "Not a declared name?"
                                            , show n
                                            ]
 
-  primDecls = Map.fromList [ entry n | ns <- Map.elems neExprs, n  <- ns ]
-  primTypes = Map.fromList [ entry n | ns <- Map.elems neTypes, n  <- ns ]
 
 -- | Generate a display format based on a naming environment.
 toNameDisp :: NamingEnv -> NameDisp
-toNameDisp NamingEnv { .. } = NameDisp display
+toNameDisp env = NameDisp display
   where
   display mn ident = Map.lookup (mn,ident) names
 
+  -- XXX: Thid does not account for namespaces, so names can step on each other.
   -- only format declared names, as parameters don't need any special
   -- formatting.
   names = Map.fromList
-     $ [ mkEntry (mn, nameIdent n) pn | (pn,ns)       <- Map.toList neExprs
-                                      , n             <- ns
-                                      , Declared mn _ <- [nameInfo n] ]
-
-    ++ [ mkEntry (mn, nameIdent n) pn | (pn,ns)       <- Map.toList neTypes
-                                      , n             <- ns
-                                      , Declared mn _ <- [nameInfo n] ]
-
-  mkEntry key pn = (key,fmt)
-    where fmt = case getModName pn of
-                  Just ns -> Qualified ns
-                  Nothing -> UnQualified
+            [ ((mn, nameIdent x), qn)
+              | ns            <- [ NSValue, NSType, NSModule ]
+              , (pn,xs)       <- Map.toList (namespaceMap ns env)
+              , x             <- xs
+              , Declared mn _ <- [nameInfo x]
+              , let qn = case getModName pn of
+                          Just q  -> Qualified q
+                          Nothing -> UnQualified
+            ]
 
 
 -- | Produce sets of visible names for types and declarations.
 --
--- NOTE: if entries in the NamingEnv would have produced a name clash, they will
--- be omitted from the resulting sets.
-visibleNames :: NamingEnv -> ({- types -} Set.Set Name
-                             ,{- decls -} Set.Set Name)
-
-visibleNames NamingEnv { .. } = (types,decls)
+-- NOTE: if entries in the NamingEnv would have produced a name clash,
+-- they will be omitted from the resulting sets.
+visibleNames :: NamingEnv -> Map Namespace (Set Name)
+visibleNames (NamingEnv env) = Set.fromList . mapMaybe check . Map.elems <$> env
   where
-  types = Set.fromList [ n | [n] <- Map.elems neTypes ]
-  decls = Set.fromList [ n | [n] <- Map.elems neExprs ]
+  check names =
+    case names of
+      [name] -> Just name
+      _      -> Nothing
 
 -- | Qualify all symbols in a 'NamingEnv' with the given prefix.
 qualify :: ModName -> NamingEnv -> NamingEnv
-qualify pfx NamingEnv { .. } =
-  NamingEnv { neExprs = Map.mapKeys toQual neExprs
-            , neTypes = Map.mapKeys toQual neTypes
-            }
-
+qualify pfx (NamingEnv env) = NamingEnv (Map.mapKeys toQual <$> env)
   where
   -- XXX we don't currently qualify fresh names
   toQual (Qual _ n)  = Qual pfx n
@@ -150,43 +157,22 @@ qualify pfx NamingEnv { .. } =
   toQual n@NewName{} = n
 
 filterNames :: (PName -> Bool) -> NamingEnv -> NamingEnv
-filterNames p NamingEnv { .. } =
-  NamingEnv { neExprs = Map.filterWithKey check neExprs
-            , neTypes = Map.filterWithKey check neTypes
-            }
-  where
-  check :: PName -> a -> Bool
-  check n _ = p n
+filterNames p (NamingEnv env) = NamingEnv (Map.filterWithKey check <$> env)
+  where check n _ = p n
 
-
--- | Singleton type renaming environment.
-singletonT :: PName -> Name -> NamingEnv
-singletonT qn tn = mempty { neTypes = Map.singleton qn [tn] }
-
--- | Singleton expression renaming environment.
-singletonE :: PName -> Name -> NamingEnv
-singletonE qn en = mempty { neExprs = Map.singleton qn [en] }
 
 -- | Like mappend, but when merging, prefer values on the lhs.
 shadowing :: NamingEnv -> NamingEnv -> NamingEnv
-shadowing l r = NamingEnv
-  { neExprs  = Map.union (neExprs  l) (neExprs  r)
-  , neTypes  = Map.union (neTypes  l) (neTypes  r) }
+shadowing (NamingEnv l) (NamingEnv r) = NamingEnv (Map.unionWith Map.union l r)
 
 travNamingEnv :: Applicative f => (Name -> f Name) -> NamingEnv -> f NamingEnv
-travNamingEnv f ne = NamingEnv <$> neExprs' <*> neTypes'
-  where
-    neExprs' = traverse (traverse f) (neExprs ne)
-    neTypes' = traverse (traverse f) (neTypes ne)
+travNamingEnv f (NamingEnv mp) =
+  NamingEnv <$> traverse (traverse (traverse f)) mp
 
 
 data InModule a = InModule !ModName a
                   deriving (Functor,Traversable,Foldable,Show)
 
-
--- | Generate a 'NamingEnv' using an explicit supply.
-namingEnv' :: BindsNames a => a -> Supply -> (NamingEnv,Supply)
-namingEnv' a supply = runId (runSupplyT supply (runBuild (namingEnv a)))
 
 newTop :: FreshM m => ModName -> PName -> Maybe Fixity -> Range -> m Name
 newTop ns thing fx rng = liftSupply (mkDeclared ns src (getIdent thing) fx rng)
@@ -196,6 +182,15 @@ newLocal :: FreshM m => PName -> Range -> m Name
 newLocal thing rng = liftSupply (mkParameter (getIdent thing) rng)
 
 newtype BuildNamingEnv = BuildNamingEnv { runBuild :: SupplyT Id NamingEnv }
+
+buildNamingEnv :: BuildNamingEnv -> Supply -> (NamingEnv,Supply)
+buildNamingEnv b supply = runId (runSupplyT supply (runBuild b))
+
+-- | Generate a 'NamingEnv' using an explicit supply.
+namingEnv' :: BindsNames a => a -> Supply -> (NamingEnv,Supply)
+namingEnv' = buildNamingEnv . namingEnv
+
+
 
 instance Semigroup BuildNamingEnv where
   BuildNamingEnv a <> BuildNamingEnv b = BuildNamingEnv $
@@ -281,10 +276,10 @@ unqualifiedEnv IfaceDecls { .. } =
 -- parameters.
 modParamsNamingEnv :: IfaceParams -> NamingEnv
 modParamsNamingEnv IfaceParams { .. } =
-  NamingEnv { neExprs = Map.fromList $ map fromFu $ Map.keys ifParamFuns
-            , neTypes = Map.fromList $ map fromTy $ Map.elems ifParamTypes
-            }
-
+  NamingEnv $ Map.fromList
+    [ (NSValue, Map.fromList $ map fromFu $ Map.keys ifParamFuns)
+    , (NSType,  Map.fromList $ map fromTy $ Map.elems ifParamTypes)
+    ]
   where
   toPName n = mkUnqual (nameIdent n)
 

@@ -1,4 +1,5 @@
 {-# Language FlexibleInstances, PatternGuards #-}
+{-# Language BlockArguments #-}
 -- | Assumes that local names do not shadow top level names.
 module Cryptol.ModuleSystem.InstantiateModule
   ( instantiateModule
@@ -263,11 +264,14 @@ instance Inst UserTC where
     where y = Map.findWithDefault x x (tyNameMap env)
 
 instance Inst (ExportSpec Name) where
-  inst env es = ExportSpec { eTypes = Set.map instT (eTypes es)
-                           , eBinds = Set.map instV (eBinds es)
-                           }
-    where instT x = Map.findWithDefault x x (tyNameMap env)
-          instV x = Map.findWithDefault x x (funNameMap env)
+  inst env (ExportSpec spec) = ExportSpec (Map.mapWithKey inst spec)
+    where
+    inst ns =
+      case ns of
+        NSValue  -> Set.map \x -> Map.findWithDefault x x (tyNameMap env)
+        NSType   -> Set.map \x -> Map.findWithDefault x x (funNameMap env)
+        NSModule -> id
+
 
 instance Inst TySyn where
   inst env ts = TySyn { tsName = instTyName env x

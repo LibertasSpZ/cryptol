@@ -546,14 +546,14 @@ getFocusedEnv  = M.focusedEnv <$> getModuleEnv
 getExprNames :: REPL [String]
 getExprNames =
   do fNames <- M.mctxNames <$> getFocusedEnv
-     return (map (show . pp) (Map.keys (M.neExprs fNames)))
+     return (map (show . pp) (Map.keys (M.namespaceMap M.NSValue fNames)))
 
 -- | Get visible type signature names.
 -- This is used for command line completition.
 getTypeNames :: REPL [String]
 getTypeNames  =
   do fNames <- M.mctxNames <$> getFocusedEnv
-     return (map (show . pp) (Map.keys (M.neTypes fNames)))
+     return (map (show . pp) (Map.keys (M.namespaceMap M.NSType fNames)))
 
 -- | Return a list of property names, sorted by position in the file.
 getPropertyNames :: REPL ([(M.Name,M.IfaceDecl)],NameDisp)

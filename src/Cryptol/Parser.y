@@ -155,11 +155,20 @@ import Paths_cryptol
 %%
 
 
-vmodule                    :: { Module PName }
-  : 'module' modName 'where' 'v{' vmod_body 'v}' { mkModule $2 $5 }
-  | 'module' modName '=' modName 'where' 'v{' vmod_body 'v}'
-                                                 { mkModuleInstance $2 $4 $7 }
-  | 'v{' vmod_body 'v}'                          { mkAnonymousModule $2 }
+vmodule :: { Module PName }
+  : nested_module                 { $1 }
+  | 'v{' vmod_body 'v}'           { mkAnonymousModule $2 }
+
+
+nested_module :: { Module PName }
+
+  : 'module' modName 'where'
+      'v{' vmod_body 'v}'                 { mkModule $2 $5 }
+
+  | 'module' modName '=' modName 'where'
+      'v{' vmod_body 'v}'                 { mkModuleInstance $2 $4 $7 }
+
+
 
 vmod_body                  :: { ([Located Import], [TopDecl PName]) }
   : vimports 'v;' vtop_decls  { (reverse $1, reverse $3) }
@@ -239,6 +248,7 @@ vtop_decl               :: { [TopDecl PName] }
   | prim_bind              { $1                                               }
   | private_decls          { $1                                               }
   | parameter_decls        { $1                                               }
+  | mbDoc nested_module    {% ((:[]) . exportModule $1) `fmap` mkNested $2 }
 
 top_decl                :: { [TopDecl PName] }
   : decl                   { [Decl (TopLevel {tlExport = Public, tlValue = $1 })] }

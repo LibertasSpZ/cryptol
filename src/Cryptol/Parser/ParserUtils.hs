@@ -36,7 +36,7 @@ import Cryptol.Parser.Lexer
 import Cryptol.Parser.LexerUtils(SelectorType(..))
 import Cryptol.Parser.Position
 import Cryptol.Parser.Utils (translateExprToNumT,widthIdent)
-import Cryptol.Utils.Ident(packModName)
+import Cryptol.Utils.Ident(packModName,packIdent,modNameChunks)
 import Cryptol.Utils.PP
 import Cryptol.Utils.Panic
 import Cryptol.Utils.RecordMap
@@ -369,6 +369,11 @@ exportNewtype e d n = TDNewtype TopLevel { tlExport = e
                                          , tlDoc    = d
                                          , tlValue  = n }
 
+exportModule :: Maybe (Located Text) -> NestedModule PName -> TopDecl PName
+exportModule mbDoc m = DModule TopLevel { tlExport = Public
+                                        , tlDoc    = mbDoc
+                                        , tlValue  = m }
+
 mkParFun :: Maybe (Located Text) ->
             Located PName ->
             Schema PName ->
@@ -400,6 +405,7 @@ changeExport e = map change
   change (Decl d)      = Decl      d { tlExport = e }
   change (DPrimType t) = DPrimType t { tlExport = e }
   change (TDNewtype n) = TDNewtype n { tlExport = e }
+  change (DModule m)   = DModule   m { tlExport = e }
   change td@Include{}  = td
   change (DParameterType {}) = panic "changeExport" ["private type parameter?"]
   change (DParameterFun {})  = panic "changeExport" ["private value parameter?"]
@@ -682,6 +688,16 @@ mkModule nm (is,ds) = Module { mName = nm
                              , mImports = is
                              , mDecls = ds
                              }
+
+mkNested :: Module PName -> ParseM (NestedModule PName)
+mkNested m =
+  case modNameChunks (thing (mName m)) of
+    [c] -> pure $ NestedModule
+                    (mkUnqual (packIdent c))
+                    (fromMaybe r (getLoc m))
+    _   -> errorMessage r "Nested modules names should be a simple identifier."
+  where
+  r = srcRange (mName m)
 
 -- | Make an unnamed module---gets the name @Main@.
 mkAnonymousModule :: ([Located Import], [TopDecl PName]) ->

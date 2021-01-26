@@ -181,6 +181,7 @@ noIncTopDecl td = case td of
   DParameterConstraint {} -> return [td]
   DParameterFun {} -> return [td]
   Include lf -> resolveInclude lf
+  DModule m -> pure [td] -- no includes here
 
 -- | Resolve the file referenced by a include into a list of top-level
 -- declarations.
