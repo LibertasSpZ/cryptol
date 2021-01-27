@@ -37,7 +37,8 @@ module Cryptol.Parser.AST
   , psFixity
 
     -- * Declarations
-  , Module(..)
+  , Module
+  , ModuleG(..)
   , Program(..)
   , TopDecl(..)
   , Decl(..)
@@ -118,17 +119,18 @@ newtype Program name = Program [TopDecl name]
                        deriving (Show)
 
 -- | A parsed module.
-data Module name = Module
-  { mName     :: Located ModName            -- ^ Name of the module
+data ModuleG mname name = Module
+  { mName     :: Located mname              -- ^ Name of the module
   , mInstance :: !(Maybe (Located ModName)) -- ^ Functor to instantiate
                                             -- (if this is a functor instnaces)
   , mImports  :: [Located Import]           -- ^ Imports for the module
   , mDecls    :: [TopDecl name]             -- ^ Declartions for the module
   } deriving (Show, Generic, NFData)
 
+type Module = ModuleG ModName
 
--- XXX: Just a place holder
-data NestedModule name = NestedModule name Range
+
+newtype NestedModule name = NestedModule (ModuleG name name)
   deriving (Show,Generic,NFData)
 
 
@@ -490,7 +492,7 @@ instance HasLoc (ParameterType name) where
 instance HasLoc (ParameterFun name) where
   getLoc a = getLoc (pfName a)
 
-instance HasLoc (Module name) where
+instance HasLoc (ModuleG mname name) where
   getLoc m
     | null locs = Nothing
     | otherwise = Just (rCombs locs)
@@ -501,7 +503,7 @@ instance HasLoc (Module name) where
                      ]
 
 instance HasLoc (NestedModule name) where
-  getLoc (NestedModule _ r) = Just r
+  getLoc (NestedModule m) = getLoc m
 
 instance HasLoc (Newtype name) where
   getLoc n
@@ -530,14 +532,23 @@ ppNamed s x = ppL (name x) <+> text s <+> pp (value x)
 ppNamed' :: PP a => String -> (Ident, (Range, a)) -> Doc
 ppNamed' s (i,(_,v)) = pp i <+> text s <+> pp v
 
-instance (Show name, PPName name) => PP (Module name) where
-  ppPrec _ m = text "module" <+> ppL (mName m) <+> text "where"
-            $$ vcat (map ppL (mImports m))
-            $$ vcat (map pp (mDecls m))
+
+
+instance (Show name, PPName mname, PPName name) => PP (ModuleG mname name) where
+  ppPrec _ = ppModule 0
+
+ppModule :: (Show name, PPName mname, PPName name) =>
+  Int -> ModuleG mname name -> Doc
+ppModule n m =
+  text "module" <+> ppL (mName m) <+> text "where" $$ nest n body
+  where
+  body = vcat (map ppL (mImports m))
+      $$ vcat (map pp (mDecls m))
+
+
 
 instance (Show name, PPName name) => PP (NestedModule name) where
-  ppPrec _ (NestedModule m r) = "module" <+> pp m <+> "where"
-                                $$ nest 2 ("/* XXX " <+> pp r <+> " */")
+  ppPrec _ (NestedModule m) = ppModule 2 m
 
 
 instance (Show name, PPName name) => PP (Program name) where
@@ -911,7 +922,7 @@ instance (NoPos a, NoPos b) => NoPos (a,b) where
 instance NoPos (Program name) where
   noPos (Program x) = Program (noPos x)
 
-instance NoPos (Module name) where
+instance NoPos (ModuleG mname name) where
   noPos m = Module { mName      = mName m
                    , mInstance  = mInstance m
                    , mImports   = noPos (mImports m)
@@ -919,7 +930,7 @@ instance NoPos (Module name) where
                    }
 
 instance NoPos (NestedModule name) where
-  noPos (NestedModule x r) = NestedModule x (noPos r)
+  noPos (NestedModule m) = NestedModule (noPos m)
 
 instance NoPos (TopDecl name) where
   noPos decl =

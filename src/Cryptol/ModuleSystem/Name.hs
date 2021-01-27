@@ -27,7 +27,6 @@ module Cryptol.ModuleSystem.Name (
   , nameLoc
   , nameFixity
   , asPrim
-  , cmpNameLexical
   , cmpNameDisplay
   , ppLocName
   , Namespace(..)
@@ -60,7 +59,6 @@ import           Cryptol.Utils.PP
 import           Control.DeepSeq
 import qualified Data.Map as Map
 import qualified Data.Monoid as M
-import           Data.Ord (comparing)
 import qualified Data.Text as Text
 import           Data.Char(isAlpha,toUpper)
 import           GHC.Generics (Generic)
@@ -76,6 +74,10 @@ data NameInfo = Declared !ModName !NameSource
               | Parameter
                 -- ^ This name is a parameter (function or type)
                 deriving (Eq, Show, Generic, NFData)
+
+data ModPath = TopModule ModName
+             | ModPath :> Name
+               deriving (Eq,Show,Generic,NFData)
 
 
 data Name = Name { nUnique :: {-# UNPACK #-} !Int
@@ -112,22 +114,6 @@ instance Eq Name where
 instance Ord Name where
   compare a b = compare (nUnique a) (nUnique b)
 
--- | Compare two names lexically.
-cmpNameLexical :: Name -> Name -> Ordering
-cmpNameLexical l r =
-  case (nameInfo l, nameInfo r) of
-
-    (Declared nsl _,Declared nsr _) ->
-      case compare nsl nsr of
-        EQ  -> comparing nameIdent l r
-        cmp -> cmp
-
-    (Parameter,Parameter) -> comparing nameIdent l r
-
-    (Declared nsl _,Parameter) -> compare (modNameToText nsl)
-                                          (identText (nameIdent r))
-    (Parameter,Declared nsr _) -> compare (identText (nameIdent l))
-                                          (modNameToText nsr)
 
 
 -- | Compare two names by the way they would be displayed.

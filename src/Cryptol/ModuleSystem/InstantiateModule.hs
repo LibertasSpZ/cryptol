@@ -73,6 +73,7 @@ instantiateModule func newName tpMap vpMap =
                  , mParamConstraints  = []
                  , mParamFuns         = Map.empty
                  , mDecls             = paramDecls ++ renamedDecls
+                 , mModules           = Map.empty -- XXX
                  } )
 
   where

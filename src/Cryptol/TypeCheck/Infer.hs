@@ -81,6 +81,7 @@ inferModule m =
                      , mParamConstraints = pCs
                      , mParamFuns = pFuns
                      , mDecls     = ds1
+                     , mModules   = Map.empty -- XXX
                      }
   where
   onlyLocal (IsLocal, x)    = Just x

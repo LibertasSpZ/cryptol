@@ -44,14 +44,15 @@ instance RemovePatterns (Program PName) where
 instance RemovePatterns (Expr PName) where
   removePatterns e = runNoPatM (noPatE e)
 
-instance RemovePatterns (Module PName) where
+instance RemovePatterns (ModuleG mname PName) where
   removePatterns m = runNoPatM (noPatModule m)
 
 instance RemovePatterns [Decl PName] where
   removePatterns ds = runNoPatM (noPatDs ds)
 
 instance RemovePatterns (NestedModule PName) where
-  removePatterns (NestedModule x r) = (NestedModule x r,[])
+  removePatterns (NestedModule m) = (NestedModule m1,errs)
+    where (m1,errs) = removePatterns m
 
 simpleBind :: Located PName -> Expr PName -> Bind PName
 simpleBind x e = Bind { bName = x, bParams = []
@@ -315,7 +316,7 @@ noPatTopDs tds =
 noPatProg :: Program PName -> NoPatM (Program PName)
 noPatProg (Program topDs) = Program <$> noPatTopDs topDs
 
-noPatModule :: Module PName -> NoPatM (Module PName)
+noPatModule :: ModuleG mname PName -> NoPatM (ModuleG mname PName)
 noPatModule m =
   do ds1 <- noPatTopDs (mDecls m)
      return m { mDecls = ds1 }

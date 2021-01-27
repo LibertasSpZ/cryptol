@@ -29,7 +29,7 @@ module Cryptol.ModuleSystem (
   , renameType
 
     -- * Interfaces
-  , Iface(..), IfaceParams(..), IfaceDecls(..), genIface
+  , Iface, IfaceG(..), IfaceParams(..), IfaceDecls(..), genIface
   , IfaceTySyn, IfaceDecl(..)
   ) where
 

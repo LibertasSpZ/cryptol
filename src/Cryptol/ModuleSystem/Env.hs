@@ -444,6 +444,7 @@ deIfaceDecls DEnv { deDecls = dgs } =
             , ifNewtypes = Map.empty
             , ifAbstractTypes = Map.empty
             , ifDecls    = Map.singleton (ifDeclName ifd) ifd
+            , ifModules  = Map.empty
             }
           | decl <- concatMap T.groupDecls dgs
           , let ifd = mkIfaceDecl decl

@@ -28,7 +28,8 @@ modExports m = fold (concat [ exportedNames d | d <- mDecls m ])
   exportedNames (DParameterConstraint {}) = []
   exportedNames (DModule nested) =
     case tlValue nested of
-      NestedModule x _ -> [exportName NSModule nested { tlValue = x }]
+      NestedModule x ->
+        [exportName NSModule nested { tlValue = thing (mName x) }]
 
 
 

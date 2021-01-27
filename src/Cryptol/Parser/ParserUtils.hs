@@ -691,13 +691,12 @@ mkModule nm (is,ds) = Module { mName = nm
 
 mkNested :: Module PName -> ParseM (NestedModule PName)
 mkNested m =
-  case modNameChunks (thing (mName m)) of
-    [c] -> pure $ NestedModule
-                    (mkUnqual (packIdent c))
-                    (fromMaybe r (getLoc m))
+  case modNameChunks (thing nm) of
+    [c] -> pure (NestedModule m { mName = nm { thing = mkUnqual (packIdent c)}})
     _   -> errorMessage r "Nested modules names should be a simple identifier."
   where
-  r = srcRange (mName m)
+  nm = mName m
+  r = srcRange nm
 
 -- | Make an unnamed module---gets the name @Main@.
 mkAnonymousModule :: ([Located Import], [TopDecl PName]) ->

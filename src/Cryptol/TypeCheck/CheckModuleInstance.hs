@@ -43,6 +43,7 @@ checkModuleInstance func inst =
                    , mParamConstraints = mParamConstraints inst
                    , mParamFuns        = mParamFuns inst
                    , mDecls            = mDecls inst ++ mDecls m
+                   , mModules          = Map.empty -- XXX
                    }
 
 -- | Check that the type parameters of the functors all have appropriate

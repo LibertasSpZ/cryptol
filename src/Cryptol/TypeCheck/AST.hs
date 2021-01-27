@@ -21,7 +21,7 @@ module Cryptol.TypeCheck.AST
   , Import(..)
   , ImportSpec(..)
   , ExportType(..)
-  , ExportSpec(..), isExportedBind, isExportedType
+  , ExportSpec(..), isExportedBind, isExportedType, isExported
   , Pragma(..)
   , Fixity(..)
   , PrimMap(..)
@@ -31,7 +31,7 @@ module Cryptol.TypeCheck.AST
 import Cryptol.Parser.Position(Located,Range,HasLoc(..))
 import Cryptol.ModuleSystem.Name
 import Cryptol.ModuleSystem.Exports(ExportSpec(..)
-                                   , isExportedBind, isExportedType)
+                                   , isExportedBind, isExportedType, isExported)
 import Cryptol.Parser.AST ( Selector(..),Pragma(..)
                           , Import(..), ImportSpec(..), ExportType(..)
                           , Fixity(..))
@@ -50,7 +50,8 @@ import           Data.Text (Text)
 
 
 -- | A Cryptol module.
-data Module = Module { mName        :: !ModName
+data ModuleG mname =
+              Module { mName        :: !mname
                      , mExports     :: ExportSpec Name
                      , mImports     :: [Import]
 
@@ -64,10 +65,15 @@ data Module = Module { mName        :: !ModName
                      , mParamConstraints :: [Located Prop]
                      , mParamFuns        :: Map Name ModVParam
                      , mDecls            :: [DeclGroup]
+                     , mModules          :: !(Map Name (ModuleG Name))
+                       -- XXX: since the modules and the decls may depend
+                       -- on each other, perhaps we should intermix them...
                      } deriving (Show, Generic, NFData)
 
+type Module = ModuleG ModName
+
 -- | Is this a parameterized module?
-isParametrizedModule :: Module -> Bool
+isParametrizedModule :: ModuleG mname -> Bool
 isParametrizedModule m = not (null (mParamTypes m) &&
                               null (mParamConstraints m) &&
                               null (mParamFuns m))
