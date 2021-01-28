@@ -37,7 +37,7 @@ import Cryptol.Utils.Panic (panic)
 import Cryptol.Utils.PP
 import Cryptol.Utils.RecordMap
 
-import Data.List(find)
+import Data.List(find,sort)
 import qualified Data.Foldable as F
 import           Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
@@ -158,6 +158,25 @@ data RenamerWarning
   | UnusedName Name
     deriving (Show, Generic, NFData)
 
+instance Eq RenamerWarning where
+  x == y = compare x y == EQ
+
+-- used to determine in what order ot show things
+instance Ord RenamerWarning where
+  compare w1 w2 =
+    case w1 of
+      SymbolShadowed x y _ ->
+        case w2 of
+          SymbolShadowed x' y' _ -> compare (byStart y,x) (byStart y',x')
+          _                      -> LT
+      UnusedName x ->
+        case w2 of
+          UnusedName y -> compare (byStart x) (byStart y)
+          _            -> GT
+
+      where
+      byStart = from . nameLoc
+
 
 instance PP RenamerWarning where
   ppPrec _ (SymbolShadowed k x os) =
@@ -243,7 +262,7 @@ runRenamer :: Supply -> ModPath -> NamingEnv -> RenameM a
            -> (Either [RenamerError] (a,Supply),[RenamerWarning])
 runRenamer s ns env m = (res, warns)
   where
-  warns = warnUnused ns env rw ++ rwWarnings rw -- XXX: maybe sort and clean up?
+  warns = sort (rwWarnings rw ++ warnUnused ns env rw)
 
   (a,rw) = runM (unRenameM m) ro
                               RW { rwErrors   = Seq.empty
