@@ -267,12 +267,12 @@ instance Inst UserTC where
     where y = Map.findWithDefault x x (tyNameMap env)
 
 instance Inst (ExportSpec Name) where
-  inst env (ExportSpec spec) = ExportSpec (Map.mapWithKey inst spec)
+  inst env (ExportSpec spec) = ExportSpec (Map.mapWithKey doNS spec)
     where
-    inst ns =
+    doNS ns =
       case ns of
-        NSValue  -> Set.map \x -> Map.findWithDefault x x (tyNameMap env)
-        NSType   -> Set.map \x -> Map.findWithDefault x x (funNameMap env)
+        NSType  -> Set.map \x -> Map.findWithDefault x x (tyNameMap env)
+        NSValue -> Set.map \x -> Map.findWithDefault x x (funNameMap env)
         NSModule -> id
 
 
