@@ -14,6 +14,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 -- for the instances of RunM and BaseM
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -26,10 +27,13 @@ module Cryptol.ModuleSystem.Name (
   , nameInfo
   , nameLoc
   , nameFixity
+  , nameNamespace
   , asPrim
-  , cmpNameDisplay
+  , asOrigName
   , ppLocName
   , Namespace(..)
+  , ModPath(..)
+  , cmpNameDisplay
 
     -- ** Creation
   , mkDeclared
@@ -49,6 +53,18 @@ module Cryptol.ModuleSystem.Name (
   , lookupPrimType
   ) where
 
+import           Control.DeepSeq
+import qualified Data.Map as Map
+import qualified Data.Monoid as M
+import           GHC.Generics (Generic)
+import           MonadLib
+import           Prelude ()
+import           Prelude.Compat
+import qualified Data.Text as Text
+import           Data.Char(isAlpha,toUpper)
+
+
+
 import           Cryptol.Parser.Position (Range,Located(..),emptyRange)
 import           Cryptol.Utils.Fixity
 import           Cryptol.Utils.Ident
@@ -56,28 +72,14 @@ import           Cryptol.Utils.Panic
 import           Cryptol.Utils.PP
 
 
-import           Control.DeepSeq
-import qualified Data.Map as Map
-import qualified Data.Monoid as M
-import qualified Data.Text as Text
-import           Data.Char(isAlpha,toUpper)
-import           GHC.Generics (Generic)
-import           MonadLib
-import           Prelude ()
-import           Prelude.Compat
-
 
 -- Names -----------------------------------------------------------------------
 -- | Information about the binding site of the name.
-data NameInfo = Declared !ModName !NameSource
+data NameInfo = Declared !ModPath !NameSource
                 -- ^ This name refers to a declaration from this module
               | Parameter
                 -- ^ This name is a parameter (function or type)
                 deriving (Eq, Show, Generic, NFData)
-
-data ModPath = TopModule ModName
-             | ModPath :> Name
-               deriving (Eq,Show,Generic,NFData)
 
 
 data Name = Name { nUnique :: {-# UNPACK #-} !Int
@@ -87,6 +89,8 @@ data Name = Name { nUnique :: {-# UNPACK #-} !Int
 
                  , nInfo :: !NameInfo
                    -- ^ Information about the origin of this name.
+
+                 , nNamespace :: !Namespace
 
                  , nIdent :: !Ident
                    -- ^ The name of the identifier
@@ -104,8 +108,6 @@ data Name = Name { nUnique :: {-# UNPACK #-} !Int
 data NameSource = SystemName | UserName
                     deriving (Generic, NFData, Show, Eq)
 
-data Namespace = NSValue | NSType | NSModule
-  deriving (Generic,Show,NFData,Eq,Ord)
 
 instance Eq Name where
   a == b = compare a b == EQ
@@ -117,34 +119,37 @@ instance Ord Name where
 
 
 -- | Compare two names by the way they would be displayed.
+-- This is used to order names nicely when showing what's in scope
 cmpNameDisplay :: NameDisp -> Name -> Name -> Ordering
 cmpNameDisplay disp l r =
-  case (nameInfo l, nameInfo r) of
+  case (asOrigName l, asOrigName r) of
 
-    (Declared nsl _, Declared nsr _) -> -- XXX: uses system name info?
-      let pfxl = fmtModName nsl (getNameFormat nsl (nameIdent l) disp)
-          pfxr = fmtModName nsr (getNameFormat nsr (nameIdent r) disp)
-       in case cmpText pfxl pfxr of
-            EQ  -> cmpName l r
-            cmp -> cmp
+    (Just ogl, Just ogr) -> -- XXX: uses system name info?
+       case cmpText (fmtPref ogl) (fmtPref ogr) of
+         EQ  -> cmpName l r
+         cmp -> cmp
 
-    (Parameter,Parameter) -> cmpName l r
+    (Nothing,Nothing) -> cmpName l r
 
-    (Declared nsl _,Parameter) ->
-      let pfxl = fmtModName nsl (getNameFormat nsl (nameIdent l) disp)
-       in case cmpText pfxl (identText (nameIdent r)) of
-            EQ  -> GT
-            cmp -> cmp
+    (Just ogl,Nothing) ->
+       case cmpText (fmtPref ogl) (identText (nameIdent r)) of
+         EQ  -> GT
+         cmp -> cmp
 
-    (Parameter,Declared nsr _) ->
-      let pfxr = fmtModName nsr (getNameFormat nsr (nameIdent r) disp)
-       in case cmpText (identText (nameIdent l)) pfxr of
-            EQ  -> LT
-            cmp -> cmp
+    (Nothing,Just ogr) ->
+       case cmpText (identText (nameIdent l)) (fmtPref ogr) of
+         EQ  -> LT
+         cmp -> cmp
 
   where
   cmpName xs ys  = cmpIdent (nameIdent xs) (nameIdent ys)
   cmpIdent xs ys = cmpText (identText xs) (identText ys)
+
+      --- let pfxl = fmtModName nsl (getNameFormat nsl (nameIdent l) disp)
+  fmtPref og = case getNameFormat og disp of
+                 UnQualified -> ""
+                 Qualified q -> modNameToText q
+                 NotInScope  -> Text.pack $ show $ pp (ogModule og)
 
   -- Note that this assumes that `xs` is `l` and `ys` is `r`
   cmpText xs ys =
@@ -160,22 +165,17 @@ cmpNameDisplay disp l r =
                | a == '_'   = 1
                | otherwise  = 0
 
+
+
 -- | Figure out how the name should be displayed, by referencing the display
 -- function in the environment. NOTE: this function doesn't take into account
 -- the need for parentheses.
 ppName :: Name -> Doc
-ppName Name { .. } =
-  case nInfo of
+ppName nm =
+  case asOrigName nm of
+    Just og -> pp og
+    Nothing -> pp (nameIdent nm)
 
-    Declared m _ -> withNameDisp $ \disp ->
-      case getNameFormat m nIdent disp of
-        Qualified m' -> ppQual m' <.> pp nIdent
-        UnQualified  ->               pp nIdent
-        NotInScope   -> ppQual m  <.> pp nIdent -- XXX: only when not in scope?
-      where
-      ppQual mo = if mo == exprModName then empty else pp mo <.> text "::"
-
-    Parameter -> pp nIdent
 
 instance PP Name where
   ppPrec _ = ppPrefixName
@@ -190,6 +190,7 @@ instance PPName Name where
 
   ppPrefixName n @ Name { .. } = optParens (isInfixIdent nIdent) (ppName n)
 
+
 -- | Pretty-print a name with its source location information.
 ppLocName :: Name -> Doc
 ppLocName n = pp Located { srcRange = nameLoc n, thing = n }
@@ -200,6 +201,9 @@ nameUnique  = nUnique
 nameIdent :: Name -> Ident
 nameIdent  = nIdent
 
+nameNamespace :: Name -> Namespace
+nameNamespace = nNamespace
+
 nameInfo :: Name -> NameInfo
 nameInfo  = nInfo
 
@@ -209,21 +213,30 @@ nameLoc  = nLoc
 nameFixity :: Name -> Maybe Fixity
 nameFixity = nFixity
 
-
+-- | Primtiives must be in a top level module, at least for now.
 asPrim :: Name -> Maybe PrimIdent
 asPrim Name { .. } =
   case nInfo of
-    Declared p _ -> Just $ PrimIdent p $ identText nIdent
-    _            -> Nothing
+    Declared (TopModule m) _ -> Just $ PrimIdent m $ identText nIdent
+    _                        -> Nothing
 
 toParamInstName :: Name -> Name
 toParamInstName n =
   case nInfo n of
-    Declared m s -> n { nInfo = Declared (paramInstModName m) s }
+    Declared m s -> n { nInfo = Declared (apPathRoot paramInstModName m) s }
     Parameter   -> n
 
 asParamName :: Name -> Name
 asParamName n = n { nInfo = Parameter }
+
+asOrigName :: Name -> Maybe OrigName
+asOrigName nm =
+  case nInfo nm of
+    Declared p _ -> Just OrigName { ogModule    = p
+                                  , ogNamespace = nNamespace nm
+                                  , ogName      = nIdent nm
+                                  }
+    Parameter    -> Nothing
 
 
 -- Name Supply -----------------------------------------------------------------
@@ -312,15 +325,17 @@ nextUnique (Supply n) = s' `seq` (n,s')
 -- Name Construction -----------------------------------------------------------
 
 -- | Make a new name for a declaration.
-mkDeclared :: ModName -> NameSource -> Ident -> Maybe Fixity -> Range -> Supply -> (Name,Supply)
-mkDeclared m sys nIdent nFixity nLoc s =
+mkDeclared ::
+  Namespace -> ModPath -> NameSource -> Ident -> Maybe Fixity -> Range ->
+  Supply -> (Name,Supply)
+mkDeclared nNamespace m sys nIdent nFixity nLoc s =
   let (nUnique,s') = nextUnique s
       nInfo        = Declared m sys
    in (Name { .. }, s')
 
 -- | Make a new parameter name.
-mkParameter :: Ident -> Range -> Supply -> (Name,Supply)
-mkParameter nIdent nLoc s =
+mkParameter :: Namespace -> Ident -> Range -> Supply -> (Name,Supply)
+mkParameter nNamespace nIdent nLoc s =
   let (nUnique,s') = nextUnique s
       nFixity      = Nothing
    in (Name { nInfo = Parameter, .. }, s')
@@ -331,6 +346,7 @@ paramModRecParam = Name { nInfo = Parameter
                         , nIdent  = packIdent "$modParams"
                         , nLoc    = emptyRange
                         , nUnique = 0x01
+                        , nNamespace = NSValue
                         }
 
 -- Prim Maps -------------------------------------------------------------------

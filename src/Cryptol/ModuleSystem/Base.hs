@@ -15,11 +15,33 @@
 
 module Cryptol.ModuleSystem.Base where
 
+import qualified Control.Exception as X
+import Control.Monad (unless,when)
+import Data.Maybe (fromMaybe)
+import Data.Monoid ((<>))
+import Data.Text.Encoding (decodeUtf8')
+import System.Directory (doesFileExist, canonicalizePath)
+import System.FilePath ( addExtension
+                       , isAbsolute
+                       , joinPath
+                       , (</>)
+                       , normalise
+                       , takeDirectory
+                       , takeFileName
+                       )
+import qualified System.IO.Error as IOE
+import qualified Data.Map as Map
+
+import Prelude ()
+import Prelude.Compat hiding ( (<>) )
+
+
+
 import Cryptol.ModuleSystem.Env (DynamicEnv(..))
 import Cryptol.ModuleSystem.Fingerprint
 import Cryptol.ModuleSystem.Interface
 import Cryptol.ModuleSystem.Monad
-import Cryptol.ModuleSystem.Name (Name,liftSupply,PrimMap)
+import Cryptol.ModuleSystem.Name (Name,liftSupply,PrimMap,ModPath(..))
 import Cryptol.ModuleSystem.Env (lookupModule
                                 , LoadedModule(..)
                                 , meCoreLint, CoreLint(..)
@@ -52,33 +74,13 @@ import Cryptol.Prelude ( preludeContents, floatContents, arrayContents
                        , suiteBContents, primeECContents, preludeReferenceContents )
 import Cryptol.Transform.MonoValues (rewModule)
 
-import qualified Control.Exception as X
-import Control.Monad (unless,when)
-import Data.Maybe (fromMaybe)
-import Data.Monoid ((<>))
-import Data.Text.Encoding (decodeUtf8')
-import System.Directory (doesFileExist, canonicalizePath)
-import System.FilePath ( addExtension
-                       , isAbsolute
-                       , joinPath
-                       , (</>)
-                       , normalise
-                       , takeDirectory
-                       , takeFileName
-                       )
-import qualified System.IO.Error as IOE
-import qualified Data.Map as Map
-
-import Prelude ()
-import Prelude.Compat hiding ( (<>) )
-
 
 -- Renaming --------------------------------------------------------------------
 
 rename :: ModName -> R.NamingEnv -> R.RenameM a -> ModuleM a
 rename modName env m = do
   (res,ws) <- liftSupply $ \ supply ->
-    case R.runRenamer supply modName env m of
+    case R.runRenamer supply (TopModule modName) env m of
       (Right (a,supply'),ws) -> ((Right a,ws),supply')
       (Left errs,ws)         -> ((Left errs,ws),supply)
 
@@ -360,7 +362,8 @@ checkDecls ds = do
       names  = mctxNames  fe
 
   -- introduce names for the declarations before renaming them
-  declsEnv <- liftSupply (R.namingEnv' (map (R.InModule interactiveName) ds))
+  let mpath = TopModule interactiveName
+  declsEnv <- liftSupply (R.namingEnv' (map (R.InModule mpath) ds))
   rds <- rename interactiveName (declsEnv `R.shadowing` names)
              (traverse R.rename ds)
 

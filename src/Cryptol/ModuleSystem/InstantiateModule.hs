@@ -37,7 +37,7 @@ instantiateModule :: FreshM m =>
                      m ([Located Prop], Module)
                      -- ^ Instantiated constraints, fresh module, new supply
 instantiateModule func newName tpMap vpMap =
-  runReaderT newName $
+  runReaderT (TopModule newName) $
     do let oldVpNames = Map.keys vpMap
        newVpNames <- mapM freshParamName (Map.keys vpMap)
        let vpNames = Map.fromList (zip oldVpNames newVpNames)
@@ -112,7 +112,7 @@ instance Defines DeclGroup where
 
 --------------------------------------------------------------------------------
 
-type InstM = ReaderT ModName
+type InstM = ReaderT ModPath
 
 -- | Generate a new instance of a declared name.
 freshenName :: FreshM m => Name -> InstM m Name
@@ -121,13 +121,15 @@ freshenName x =
      let sys = case nameInfo x of
                  Declared _ s -> s
                  _            -> UserName
-     liftSupply (mkDeclared m sys (nameIdent x) (nameFixity x) (nameLoc x))
+     liftSupply (mkDeclared (nameNamespace x)
+                             m sys (nameIdent x) (nameFixity x) (nameLoc x))
 
 freshParamName :: FreshM m => Name -> InstM m Name
 freshParamName x =
   do m <- ask
      let newName = modParamIdent (nameIdent x)
-     liftSupply (mkDeclared m UserName newName (nameFixity x) (nameLoc x))
+     liftSupply (mkDeclared (nameNamespace x)
+                          m UserName newName (nameFixity x) (nameLoc x))
 
 
 

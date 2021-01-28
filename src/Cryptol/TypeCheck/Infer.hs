@@ -392,7 +392,7 @@ checkRecUpd mb fs tGoal =
 
     -- { _ | fs } ~~>  \r -> { r | fs }
     Nothing ->
-      do r <- newParamName (packIdent "r")
+      do r <- newParamName NSValue (packIdent "r")
          let p  = P.PVar Located { srcRange = nameLoc r, thing = r }
              fe = P.EFun [p] (P.EUpd (Just (P.EVar r)) fs)
          checkE fe tGoal
@@ -418,7 +418,7 @@ checkRecUpd mb fs tGoal =
                 v1 <- checkE v (WithSource (tFun ft ft) src)
                 -- XXX: ^ may be used a different src?
                 d  <- newHasGoal s (twsType tGoal) ft
-                tmp <- newParamName (packIdent "rf")
+                tmp <- newParamName NSValue (packIdent "rf")
                 let e' = EVar tmp
                 pure $ hasDoSet d e' (EApp v1 (hasDoSelect d e'))
                        `EWhere`

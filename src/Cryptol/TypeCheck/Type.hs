@@ -939,9 +939,8 @@ instance PP (WithNames Type) where
 
       TUser c ts t ->
         withNameDisp $ \disp ->
-        case nameInfo c of
-          Declared m _
-            | NotInScope <- getNameFormat m (nameIdent c) disp ->
+        case asOrigName c of
+          Just og | NotInScope <- getNameFormat og disp ->
               go prec t -- unfold type synonym if not in scope
           _ ->
             case ts of
@@ -1052,7 +1051,7 @@ pickTVarName k src uni =
     TypeParamInstPos f n   -> mk (sh f ++ "_" ++ show n)
     DefinitionOf x ->
       case nameInfo x of
-        Declared m SystemName | m == exprModName -> mk "it"
+        Declared m SystemName | m == TopModule exprModName -> mk "it"
         _ -> using x
     LenOfCompGen           -> mk "n"
     GeneratorOfListComp    -> "seq"

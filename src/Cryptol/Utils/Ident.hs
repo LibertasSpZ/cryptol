@@ -7,10 +7,13 @@
 -- Portability :  portable
 
 {-# LANGUAGE DeriveGeneric, OverloadedStrings #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module Cryptol.Utils.Ident
   ( -- * Module names
-    ModName
+    ModPath(..)
+  , apPathRoot
+  , ModName
   , modNameToText
   , textToModName
   , modNameChunks
@@ -41,6 +44,12 @@ module Cryptol.Utils.Ident
   , identText
   , modParamIdent
 
+    -- * Namespaces
+  , Namespace(..)
+
+    -- * Original names
+  , OrigName(..)
+
     -- * Identifiers for primitives
   , PrimIdent(..)
   , prelPrim
@@ -58,7 +67,27 @@ import           Data.String (IsString(..))
 import           GHC.Generics (Generic)
 
 
--- | Module names are just text.
+--------------------------------------------------------------------------------
+
+-- | Namespaces for names
+data Namespace = NSValue | NSType | NSModule
+  deriving (Generic,Show,NFData,Eq,Ord)
+
+-- | Idnetifies a possibly nested module
+data ModPath  = TopModule ModName
+              | Nested ModPath Ident
+                deriving (Eq,Ord,Show,Generic,NFData)
+
+apPathRoot :: (ModName -> ModName) -> ModPath -> ModPath
+apPathRoot f path =
+  case path of
+    TopModule m -> TopModule (f m)
+    Nested p q  -> Nested (apPathRoot f p) q
+
+
+
+--------------------------------------------------------------------------------
+-- | Top-level Module names are just text.
 data ModName = ModName T.Text
   deriving (Eq,Ord,Show,Generic)
 
@@ -135,6 +164,15 @@ noModuleName = packModName ["<none>"]
 
 exprModName :: ModName
 exprModName = packModName ["<expr>"]
+
+
+--------------------------------------------------------------------------------
+-- | Identifies an entitiy
+data OrigName = OrigName
+  { ogNamespace :: Namespace
+  , ogModule    :: ModPath
+  , ogName      :: Ident
+  } deriving (Eq,Ord,Show,Generic,NFData)
 
 
 --------------------------------------------------------------------------------

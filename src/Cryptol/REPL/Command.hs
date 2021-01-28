@@ -1598,10 +1598,11 @@ handleCtrlC a = do rPutStrLn "Ctrl-C"
 
 -- Utilities -------------------------------------------------------------------
 
+-- XXX: browsing nested modules?
 hasAnyModName :: [M.ModName] -> M.Name -> Bool
 hasAnyModName mnames n =
   case M.nameInfo n of
-    M.Declared m _ -> m `elem` mnames
+    M.Declared (M.TopModule m) _ -> m `elem` mnames
     M.Parameter  -> False
 
 

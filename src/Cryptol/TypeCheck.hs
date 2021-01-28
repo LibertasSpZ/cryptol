@@ -28,7 +28,7 @@ module Cryptol.TypeCheck
   ) where
 
 import           Cryptol.ModuleSystem.Name
-                    (liftSupply,mkDeclared,NameSource(..))
+                    (liftSupply,mkDeclared,NameSource(..),ModPath(..))
 import qualified Cryptol.Parser.AST as P
 import           Cryptol.Parser.Position(Range,emptyRange)
 import           Cryptol.TypeCheck.AST
@@ -48,7 +48,7 @@ import           Cryptol.TypeCheck.Solve(proveModuleTopLevel)
 import           Cryptol.TypeCheck.CheckModuleInstance(checkModuleInstance)
 import           Cryptol.TypeCheck.Monad(withParamType,withParameterConstraints)
 import           Cryptol.TypeCheck.PP(WithNames(..),NameMap)
-import           Cryptol.Utils.Ident (exprModName,packIdent)
+import           Cryptol.Utils.Ident (exprModName,packIdent,Namespace(..))
 import           Cryptol.Utils.PP
 import           Cryptol.Utils.Panic(panic)
 
@@ -90,8 +90,9 @@ tcExpr e0 inp = runInferM inp
                              , show e'
                              , show t
                              ]
-      _ -> do fresh <- liftSupply (mkDeclared exprModName SystemName
-                                      (packIdent "(expression)") Nothing loc)
+      _ -> do fresh <- liftSupply $
+                        mkDeclared NSValue (TopModule exprModName) SystemName
+                                      (packIdent "(expression)") Nothing loc
               res   <- inferBinds True False
                 [ P.Bind
                     { P.bName      = P.Located { P.srcRange = loc, P.thing = fresh }

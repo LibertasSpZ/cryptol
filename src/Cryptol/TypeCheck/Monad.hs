@@ -34,7 +34,7 @@ import qualified Cryptol.TypeCheck.SimpleSolver as Simple
 import qualified Cryptol.TypeCheck.Solver.SMT as SMT
 import           Cryptol.TypeCheck.PP(NameMap)
 import           Cryptol.Utils.PP(pp, (<+>), text,commaSep,brackets)
-import           Cryptol.Utils.Ident(Ident)
+import           Cryptol.Utils.Ident(Ident,Namespace(..))
 import           Cryptol.Utils.Panic(panic)
 
 import qualified Control.Applicative as A
@@ -451,10 +451,10 @@ solveHasGoal n e =
 --------------------------------------------------------------------------------
 
 -- | Generate a fresh variable name to be used in a local binding.
-newParamName :: Ident -> InferM Name
-newParamName x =
+newParamName :: Namespace -> Ident -> InferM Name
+newParamName ns x =
   do r <- curRange
-     liftSupply (mkParameter x r)
+     liftSupply (mkParameter ns x r)
 
 newName :: (NameSeeds -> (a , NameSeeds)) -> InferM a
 newName upd = IM $ sets $ \s -> let (x,seeds) = upd (iNameSeeds s)

@@ -18,7 +18,7 @@
 module Cryptol.ModuleSystem.NamingEnv where
 
 import Data.List (nub)
-import Data.Maybe (fromMaybe,mapMaybe)
+import Data.Maybe (fromMaybe,mapMaybe,maybeToList)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
@@ -116,19 +116,14 @@ toPrimMap env =
 
 -- | Generate a display format based on a naming environment.
 toNameDisp :: NamingEnv -> NameDisp
-toNameDisp env = NameDisp display
+toNameDisp env = NameDisp (`Map.lookup` names)
   where
-  display mn ident = Map.lookup (mn,ident) names
-
-  -- XXX: Thid does not account for namespaces, so names can step on each other.
-  -- only format declared names, as parameters don't need any special
-  -- formatting.
   names = Map.fromList
-            [ ((mn, nameIdent x), qn)
+            [ (og, qn)
               | ns            <- [ NSValue, NSType, NSModule ]
               , (pn,xs)       <- Map.toList (namespaceMap ns env)
               , x             <- xs
-              , Declared mn _ <- [nameInfo x]
+              , og            <- maybeToList (asOrigName x)
               , let qn = case getModName pn of
                           Just q  -> Qualified q
                           Nothing -> UnQualified
@@ -170,16 +165,18 @@ travNamingEnv f (NamingEnv mp) =
   NamingEnv <$> traverse (traverse (traverse f)) mp
 
 
-data InModule a = InModule !ModName a
+data InModule a = InModule !ModPath a
                   deriving (Functor,Traversable,Foldable,Show)
 
 
-newTop :: FreshM m => ModName -> PName -> Maybe Fixity -> Range -> m Name
-newTop ns thing fx rng = liftSupply (mkDeclared ns src (getIdent thing) fx rng)
+newTop ::
+  FreshM m => Namespace -> ModPath -> PName -> Maybe Fixity -> Range -> m Name
+newTop ns m thing fx rng =
+  liftSupply (mkDeclared ns m src (getIdent thing) fx rng)
   where src = if isGeneratedName thing then SystemName else UserName
 
-newLocal :: FreshM m => PName -> Range -> m Name
-newLocal thing rng = liftSupply (mkParameter (getIdent thing) rng)
+newLocal :: FreshM m => Namespace -> PName -> Range -> m Name
+newLocal ns thing rng = liftSupply (mkParameter ns (getIdent thing) rng)
 
 newtype BuildNamingEnv = BuildNamingEnv { runBuild :: SupplyT Id NamingEnv }
 
@@ -301,9 +298,9 @@ instance BindsNames ImportIface where
 
 -- | Introduce the name
 instance BindsNames (InModule (Bind PName)) where
-  namingEnv (InModule ns b) = BuildNamingEnv $
+  namingEnv (InModule m b) = BuildNamingEnv $
     do let Located { .. } = bName b
-       n <- newTop ns thing (bFixity b) srcRange
+       n <- newTop NSValue m thing (bFixity b) srcRange
 
        return (singletonE thing n)
 
@@ -311,13 +308,13 @@ instance BindsNames (InModule (Bind PName)) where
 instance BindsNames (TParam PName) where
   namingEnv TParam { .. } = BuildNamingEnv $
     do let range = fromMaybe emptyRange tpRange
-       n <- newLocal tpName range
+       n <- newLocal NSType tpName range
        return (singletonT tpName n)
 
 -- | The naming environment for a single module.  This is the mapping from
 -- unqualified names to fully qualified names with uniques.
 instance BindsNames (Module PName) where
-  namingEnv Module { .. } = foldMap (namingEnv . InModule ns) mDecls
+  namingEnv Module { .. } = foldMap (namingEnv . InModule (TopModule ns)) mDecls
     where
     ns = thing mName
 
@@ -333,23 +330,23 @@ instance BindsNames (InModule (TopDecl PName)) where
       Include _   -> mempty
 
 instance BindsNames (InModule (PrimType PName)) where
-  namingEnv (InModule ns PrimType { .. }) =
+  namingEnv (InModule m PrimType { .. }) =
     BuildNamingEnv $
       do let Located { .. } = primTName
-         nm <- newTop ns thing primTFixity srcRange
+         nm <- newTop NSType m thing primTFixity srcRange
          pure (singletonT thing nm)
 
 instance BindsNames (InModule (ParameterFun PName)) where
   namingEnv (InModule ns ParameterFun { .. }) = BuildNamingEnv $
     do let Located { .. } = pfName
-       ntName <- newTop ns thing pfFixity srcRange
+       ntName <- newTop NSValue ns thing pfFixity srcRange
        return (singletonE thing ntName)
 
 instance BindsNames (InModule (ParameterType PName)) where
   namingEnv (InModule ns ParameterType { .. }) = BuildNamingEnv $
     -- XXX: we don't seem to have a fixity environment at the type level
     do let Located { .. } = ptName
-       ntName <- newTop ns thing Nothing srcRange
+       ntName <- newTop NSType ns thing Nothing srcRange
        return (singletonT thing ntName)
 
 -- NOTE: we use the same name at the type and expression level, as there's only
@@ -358,14 +355,15 @@ instance BindsNames (InModule (ParameterType PName)) where
 instance BindsNames (InModule (Newtype PName)) where
   namingEnv (InModule ns Newtype { .. }) = BuildNamingEnv $
     do let Located { .. } = nName
-       ntName <- newTop ns thing Nothing srcRange
+       ntName <- newTop NSType ns thing Nothing srcRange
+       -- XXX: the name reuse here is sketchy
        return (singletonT thing ntName `mappend` singletonE thing ntName)
 
 -- | The naming environment for a single declaration.
 instance BindsNames (InModule (Decl PName)) where
   namingEnv (InModule pfx d) = case d of
     DBind b -> BuildNamingEnv $
-      do n <- mkName (bName b) (bFixity b)
+      do n <- mkName NSValue (bName b) (bFixity b)
          return (singletonE (thing (bName b)) n)
 
     DSignature ns _sig      -> foldMap qualBind ns
@@ -378,12 +376,12 @@ instance BindsNames (InModule (Decl PName)) where
 
     where
 
-    mkName ln fx = newTop pfx (thing ln) fx (srcRange ln)
+    mkName ns ln fx = newTop ns pfx (thing ln) fx (srcRange ln)
 
     qualBind ln = BuildNamingEnv $
-      do n <- mkName ln Nothing
+      do n <- mkName NSValue ln Nothing
          return (singletonE (thing ln) n)
 
     qualType ln f = BuildNamingEnv $
-      do n <- mkName ln f
+      do n <- mkName NSType ln f
          return (singletonT (thing ln) n)
