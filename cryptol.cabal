@@ -111,9 +111,11 @@ library
                        Cryptol.ModuleSystem.Monad,
                        Cryptol.ModuleSystem.Name,
                        Cryptol.ModuleSystem.NamingEnv,
-                       Cryptol.ModuleSystem.Renamer,
                        Cryptol.ModuleSystem.Exports,
                        Cryptol.ModuleSystem.InstantiateModule,
+                       Cryptol.ModuleSystem.Renamer,
+                       Cryptol.ModuleSystem.Renamer.Monad,
+                       Cryptol.ModuleSystem.Renamer.Error,
 
                        Cryptol.TypeCheck,
                        Cryptol.TypeCheck.Type,
