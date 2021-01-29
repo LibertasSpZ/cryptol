@@ -24,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Semigroup
-import MonadLib (runId,Id)
+import MonadLib (runId,Id,StateT,runStateT,lift,sets_)
 
 import GHC.Generics (Generic)
 import Control.DeepSeq
@@ -178,14 +178,37 @@ newTop ns m thing fx rng =
 newLocal :: FreshM m => Namespace -> PName -> Range -> m Name
 newLocal ns thing rng = liftSupply (mkParameter ns (getIdent thing) rng)
 
-newtype BuildNamingEnv = BuildNamingEnv { runBuild :: SupplyT Id NamingEnv }
+newtype BuildNamingEnv =
+  BuildNamingEnv { runBuild :: SupplyT (StateT NestedMods Id) NamingEnv }
 
-buildNamingEnv :: BuildNamingEnv -> Supply -> (NamingEnv,Supply)
-buildNamingEnv b supply = runId (runSupplyT supply (runBuild b))
+type NestedMods = Map Name NamingEnv
+
+buildNamingEnv :: BuildNamingEnv -> Supply -> (ModDefs,Supply)
+buildNamingEnv b supply = (ModDefs { defNames = defs
+                                   , defMods  = mods
+                                   }, newSupply)
+  where
+  ((defs,newSupply),mods) =
+                  runId $ runStateT Map.empty $ runSupplyT supply $ runBuild b
 
 -- | Generate a 'NamingEnv' using an explicit supply.
-namingEnv' :: BindsNames a => a -> Supply -> (NamingEnv,Supply)
-namingEnv' = buildNamingEnv . namingEnv
+defsWithModsOf :: BindsNames a => a -> Supply -> (ModDefs,Supply)
+defsWithModsOf = buildNamingEnv . namingEnv
+
+defsOf :: BindsNames a => a -> Supply -> (NamingEnv, Supply)
+defsOf a s =
+  case defsWithModsOf a s of
+    (d,s1) | Map.null (defMods d) -> (defNames d, s1)
+    _ -> panic "defsOf" [ "Unexpected nested modules" ]
+
+namingEnv' :: BindsNames a => a -> Supply -> (NamingEnv, Supply)
+namingEnv' = defsOf -- XXX: NM
+
+data ModDefs = ModDefs
+  { defNames :: NamingEnv
+  , defMods  :: NestedMods
+  }
+
 
 
 
@@ -203,6 +226,10 @@ instance Monoid BuildNamingEnv where
   mconcat bs = BuildNamingEnv $
     do ns <- sequence (map runBuild bs)
        return (mconcat ns)
+
+--------------------------------------------------------------------------------
+
+
 
 -- | Things that define exported names.
 class BindsNames a where
@@ -314,9 +341,12 @@ instance BindsNames (TParam PName) where
 -- | The naming environment for a single module.  This is the mapping from
 -- unqualified names to fully qualified names with uniques.
 instance BindsNames (Module PName) where
-  namingEnv Module { .. } = foldMap (namingEnv . InModule (TopModule ns)) mDecls
-    where
-    ns = thing mName
+  namingEnv m = moduleDefs (TopModule (thing (mName m))) m
+
+
+moduleDefs :: ModPath -> ModuleG mname PName -> BuildNamingEnv
+moduleDefs m Module { .. } = foldMap (namingEnv . InModule m) mDecls
+
 
 instance BindsNames (InModule (TopDecl PName)) where
   namingEnv (InModule ns td) =
@@ -328,6 +358,16 @@ instance BindsNames (InModule (TopDecl PName)) where
       DParameterConstraint {} -> mempty
       DParameterFun  d -> namingEnv (InModule ns d)
       Include _   -> mempty
+      DModule m   -> namingEnv (InModule ns (tlValue m))
+
+instance BindsNames (InModule (NestedModule PName)) where
+  namingEnv (InModule m (NestedModule mdef)) = BuildNamingEnv $
+    do let pnmame = mName mdef
+       nm   <- newTop NSModule m (thing pnmame) Nothing (srcRange pnmame)
+       let i = nameIdent nm
+       defs <- liftSupply (buildNamingEnv (moduleDefs (Nested m i) mdef))
+       lift $ sets_ $ Map.insert nm (defNames defs) . Map.union (defMods defs)
+       pure (singletonNS NSModule (thing pnmame) nm)
 
 instance BindsNames (InModule (PrimType PName)) where
   namingEnv (InModule m PrimType { .. }) =

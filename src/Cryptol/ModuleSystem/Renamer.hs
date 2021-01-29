@@ -17,7 +17,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Cryptol.ModuleSystem.Renamer (
     NamingEnv(), shadowing
-  , BindsNames(..), InModule(..), namingEnv'
+  , BindsNames(..), InModule(..)
   , shadowNames
   , Rename(..), runRenamer, RenameM()
   , RenamerError(..)
