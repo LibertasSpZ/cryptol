@@ -25,11 +25,13 @@ module Cryptol.ModuleSystem.Renamer (
   , renameVar
   , renameType
   , renameModule
+  , RenamerInfo(..)
   ) where
 
 import Cryptol.ModuleSystem.Name
 import Cryptol.ModuleSystem.NamingEnv
 import Cryptol.ModuleSystem.Exports
+import Cryptol.ModuleSystem.Interface
 import Cryptol.Parser.AST
 import Cryptol.Parser.Position
 import Cryptol.Parser.Selector(ppNestedSels,selName)
@@ -258,22 +260,30 @@ instance FreshM RenameM where
         rw'    = RW { rwSupply = s', .. }
      in a `seq` rw' `seq` (a, rw')
 
-runRenamer :: Supply -> ModPath -> NamingEnv -> RenameM a
+
+data RenamerInfo = RenamerInfo
+  { renSupply   :: Supply     -- ^ Use to make new names
+  , renContext  :: ModPath    -- ^ We are renaming things in here
+  , renEnv      :: NamingEnv  -- ^ This is what's in scope
+  , renIfaces   :: ModName -> Iface
+  }
+
+runRenamer :: RenamerInfo -> RenameM a
            -> (Either [RenamerError] (a,Supply),[RenamerWarning])
-runRenamer s ns env m = (res, warns)
+runRenamer info m = (res, warns)
   where
-  warns = sort (rwWarnings rw ++ warnUnused ns env rw)
+  warns = sort (rwWarnings rw ++ warnUnused (renContext info) (renEnv info) rw)
 
   (a,rw) = runM (unRenameM m) ro
                               RW { rwErrors   = Seq.empty
                                  , rwWarnings = []
-                                 , rwSupply   = s
+                                 , rwSupply   = renSupply info
                                  , rwNameUseCount = Map.empty
                                  }
 
-  ro = RO { roLoc = emptyRange
-          , roNames = env
-          , roMod = ns
+  ro = RO { roLoc   = emptyRange
+          , roNames = renEnv info
+          , roMod   = renContext info
           }
 
   res | Seq.null (rwErrors rw) = Right (a,rwSupply rw)
@@ -397,13 +407,18 @@ class Rename f where
 
 renameModule :: Module PName -> RenameM (NamingEnv,Module Name)
 renameModule m =
-  do env    <- liftSupply (namingEnv' m)
+  do defs <- liftSupply (defsWithModsOf m)
+     let env = defNames defs
      -- NOTE: we explicitly hide shadowing errors here, by using shadowNames'
      decls' <-  shadowNames' CheckOverlap env (traverse rename (mDecls m))
      let m1 = m { mDecls = decls' }
          exports = modExports m1
      mapM_ recordUse (exported NSType exports)
      return (env,m1)
+
+
+
+
 
 instance Rename TopDecl where
   rename td     = case td of

@@ -79,8 +79,16 @@ import Cryptol.Transform.MonoValues (rewModule)
 
 rename :: ModName -> R.NamingEnv -> R.RenameM a -> ModuleM a
 rename modName env m = do
+  ifaces <- getIfaces
   (res,ws) <- liftSupply $ \ supply ->
-    case R.runRenamer supply (TopModule modName) env m of
+    let info = R.RenamerInfo
+                 { renSupply  = supply
+                 , renContext = TopModule modName
+                 , renEnv     = env
+                 , renIfaces  = ifaces
+                 }
+    in
+    case R.runRenamer info m of
       (Right (a,supply'),ws) -> ((Right a,ws),supply')
       (Left errs,ws)         -> ((Left errs,ws),supply)
 
