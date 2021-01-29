@@ -35,6 +35,7 @@ import Cryptol.Parser.Selector(selName)
 import Cryptol.Utils.Panic (panic)
 import Cryptol.Utils.RecordMap
 
+import Cryptol.ModuleSystem.Interface
 import Cryptol.ModuleSystem.Renamer.Error
 import Cryptol.ModuleSystem.Renamer.Monad
 
@@ -45,19 +46,24 @@ import Cryptol.ModuleSystem.Renamer.Monad
 class Rename f where
   rename :: f PName -> RenameM (f Name)
 
-renameModule :: Module PName -> RenameM (NamingEnv,Module Name)
+-- | Returns:
+--
+--    * Interfaces for imported things,
+--    * Things defines in the module
+--    * Renamed module
+renameModule :: Module PName -> RenameM (IfaceDecls,NamingEnv,Module Name)
 renameModule m =
-  do defs <- liftSupply (defsWithModsOf m)
+  do (ds,imps) <- mconcat <$> mapM (lookupImport . thing) (mImports m)
+     defs <- liftSupply (defsWithModsOf m)
      let env = defNames defs
-     -- NOTE: we explicitly hide shadowing errors here, by using shadowNames'
-     decls' <-  shadowNames' CheckOverlap env (traverse rename (mDecls m))
-     let m1 = m { mDecls = decls' }
+     -- XXX: NM open looping, etc
+     decls' <- shadowNames imps $
+               shadowNames' CheckOverlap env $
+               traverse rename (mDecls m)
+     let m1      = m { mDecls = decls' }
          exports = modExports m1
      mapM_ recordUse (exported NSType exports)
-     return (env,m1)
-
-
-
+     return (ds,env,m1)
 
 
 instance Rename TopDecl where

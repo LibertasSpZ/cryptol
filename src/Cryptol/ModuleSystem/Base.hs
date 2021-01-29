@@ -98,12 +98,8 @@ rename modName env m = do
     Left errs -> renamerErrors errs
 
 -- | Rename a module in the context of its imported modules.
-renameModule :: P.Module PName
-             -> ModuleM (IfaceDecls,R.NamingEnv,P.Module Name)
-renameModule m = do
-  (decls,menv) <- importIfaces (map thing (P.mImports m))
-  (declsEnv,rm) <- rename (thing (mName m)) menv (R.renameModule m)
-  return (decls,declsEnv,rm)
+renameModule :: P.Module PName -> ModuleM (IfaceDecls,R.NamingEnv,P.Module Name)
+renameModule m = rename (thing (mName m)) mempty (R.renameModule m)
 
 
 -- NoPat -----------------------------------------------------------------------
@@ -239,17 +235,6 @@ doLoadModule quiet isrc path fp pm0 =
 -- > import foo as foo [ [hiding] (a,b,c) ]
 fullyQualified :: P.Import -> P.Import
 fullyQualified i = i { iAs = Just (iModule i) }
-
--- | Find the interface referenced by an import, and generate the naming
--- environment that it describes.
-importIface :: P.Import -> ModuleM (IfaceDecls,R.NamingEnv)
-importIface imp =
-  do Iface { .. } <- getIface (T.iModule imp)
-     return (ifPublic, R.interpImport imp ifPublic)
-
--- | Load a series of interfaces, merging their public interfaces.
-importIfaces :: [P.Import] -> ModuleM (IfaceDecls,R.NamingEnv)
-importIfaces is = mconcat `fmap` mapM importIface is
 
 moduleFile :: ModName -> String -> FilePath
 moduleFile n = addExtension (joinPath (modNameChunks n))

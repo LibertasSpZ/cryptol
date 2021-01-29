@@ -31,14 +31,21 @@ import Cryptol.Utils.Panic (panic)
 
 import Cryptol.ModuleSystem.Renamer.Error
 
-
+-- | Information needed to do some renaming.
+data RenamerInfo = RenamerInfo
+  { renSupply   :: Supply     -- ^ Use to make new names
+  , renContext  :: ModPath    -- ^ We are renaming things in here
+  , renEnv      :: NamingEnv  -- ^ This is what's in scope
+  , renIfaces   :: ModName -> Iface
+  }
 
 newtype RenameM a = RenameM { unRenameM :: ReaderT RO (StateT RW Lift) a }
 
 data RO = RO
-  { roLoc   :: Range
-  , roMod   :: !ModPath
-  , roNames :: NamingEnv
+  { roLoc    :: Range
+  , roMod    :: !ModPath
+  , roNames  :: NamingEnv
+  , roIfaces :: ModName -> Iface
   }
 
 data RW = RW
@@ -92,13 +99,6 @@ instance FreshM RenameM where
      in a `seq` rw' `seq` (a, rw')
 
 
-data RenamerInfo = RenamerInfo
-  { renSupply   :: Supply     -- ^ Use to make new names
-  , renContext  :: ModPath    -- ^ We are renaming things in here
-  , renEnv      :: NamingEnv  -- ^ This is what's in scope
-  , renIfaces   :: ModName -> Iface
-  }
-
 runRenamer :: RenamerInfo -> RenameM a
            -> (Either [RenamerError] (a,Supply),[RenamerWarning])
 runRenamer info m = (res, warns)
@@ -115,6 +115,7 @@ runRenamer info m = (res, warns)
   ro = RO { roLoc   = emptyRange
           , roNames = renEnv info
           , roMod   = renContext info
+          , roIfaces = renIfaces info
           }
 
   res | Seq.null (rwErrors rw) = Right (a,rwSupply rw)
@@ -230,4 +231,10 @@ warnUnused m0 env rw =
                  Declared m sys -> sys == UserName &&
                                    m == m0 && nm `Set.notMember` oldNames
                  Parameter  -> True
+
+lookupImport :: Import -> RenameM (IfaceDecls, NamingEnv)
+lookupImport imp = RenameM $
+  do getIf <- roIfaces <$> ask
+     let ds = ifPublic (getIf (iModule imp))
+     pure (ds, interpImport imp ds)
 
