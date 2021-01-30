@@ -258,7 +258,7 @@ focusedEnv me =
     case lookupModule (iModule imp) me of
       Just lm ->
         let decls = ifPublic (lmInterface lm)
-        in ( R.interpImport imp decls
+        in ( R.interpImportIface imp decls
            , decls
            , declsProv (NameIsImportedFrom (iModule imp)) decls
            )

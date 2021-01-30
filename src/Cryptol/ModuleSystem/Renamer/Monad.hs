@@ -236,5 +236,5 @@ lookupImport :: Import -> RenameM (IfaceDecls, NamingEnv)
 lookupImport imp = RenameM $
   do getIf <- roIfaces <$> ask
      let ds = ifPublic (getIf (iModule imp))
-     pure (ds, interpImport imp ds)
+     pure (ds, interpImportIface imp ds)
 

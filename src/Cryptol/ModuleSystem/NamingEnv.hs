@@ -254,12 +254,12 @@ instance BindsNames (Schema PName) where
   {-# INLINE namingEnv #-}
 
 
--- | Interpret an import in the context of an interface, to produce a name
--- environment for the renamer, and a 'NameDisp' for pretty-printing.
-interpImport :: Import     {- ^ The import declarations -} ->
-                IfaceDecls {- ^ Declarations of imported module -} ->
+
+-- | Adapt the things exported by something to the specific import/open.
+interpImportEnv :: ImportG name  {- ^ The import declarations -} ->
+                NamingEnv     {- ^ All public things coming in -} ->
                 NamingEnv
-interpImport imp publicDecls = qualified
+interpImportEnv imp public = qualified
   where
 
   -- optionally qualify names based on the import
@@ -276,9 +276,14 @@ interpImport imp publicDecls = qualified
 
     | otherwise = public
 
-  -- generate the initial environment from the public interface, where no names
-  -- are qualified
-  public = unqualifiedEnv publicDecls
+
+
+-- | Interpret an import in the context of an interface, to produce a name
+-- environment for the renamer, and a 'NameDisp' for pretty-printing.
+interpImportIface :: Import     {- ^ The import declarations -} ->
+                IfaceDecls {- ^ Declarations of imported module -} ->
+                NamingEnv
+interpImportIface imp = interpImportEnv imp . unqualifiedEnv
 
 
 -- | Generate a naming environment from a declaration interface, where none of
@@ -320,7 +325,7 @@ data ImportIface = ImportIface Import Iface
 -- mapping only from unqualified names to qualified ones.
 instance BindsNames ImportIface where
   namingEnv (ImportIface imp Iface { .. }) = BuildNamingEnv $
-    return (interpImport imp ifPublic)
+    return (interpImportIface imp ifPublic)
   {-# INLINE namingEnv #-}
 
 -- | Introduce the name

@@ -65,6 +65,18 @@ renameModule m =
      mapM_ recordUse (exported NSType exports)
      return (ds,env,m1)
 
+{-
+openLoop used undef os env =
+  case os of
+    o : more ->
+      case lookupNS NSModule o env of
+        [] -> openLoop (o : undef) more env
+        [n] ->
+          case asOrigName n of
+            Just og -> let
+            Nothing -> panic "openLoop" [ "Non top-level module name" ]
+-}
+
 
 instance Rename TopDecl where
   rename td     = case td of

@@ -51,7 +51,7 @@ module Cryptol.Parser.AST
   , Pragma(..)
   , ExportType(..)
   , TopLevel(..)
-  , Import(..), ImportSpec(..)
+  , Import, ImportG(..), ImportSpec(..)
   , Newtype(..)
   , PrimType(..)
   , ParameterType(..)
@@ -185,10 +185,13 @@ data ParameterFun name = ParameterFun
 
 
 -- | An import declaration.
-data Import = Import { iModule    :: !ModName
-                     , iAs        :: Maybe ModName
-                     , iSpec      :: Maybe ImportSpec
-                     } deriving (Eq, Show, Generic, NFData)
+data ImportG mname = Import
+  { iModule    :: !mname
+  , iAs        :: Maybe ModName
+  , iSpec      :: Maybe ImportSpec
+  } deriving (Eq, Show, Generic, NFData)
+
+type Import = ImportG ModName
 
 -- | The list of names following an import.
 --
@@ -606,7 +609,7 @@ instance PPName name => PP (Newtype name) where
     [ text "newtype", ppL (nName nt), hsep (map pp (nParams nt)), char '='
     , braces (commaSep (map (ppNamed' ":") (displayFields (nBody nt)))) ]
 
-instance PP Import where
+instance PP mname => PP (ImportG mname) where
   ppPrec _ d = text "import" <+> sep [ pp (iModule d), mbAs, mbSpec ]
     where
     mbAs = maybe empty (\ name -> text "as" <+> pp name ) (iAs d)
